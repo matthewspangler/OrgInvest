@@ -1,0 +1,218 @@
+# -*- mode: org; org-confirm-babel-evaluate: nil; eval: (org-babel-lob-ingest "./accounting.org"); -*-
+#+TITLE: Template Portfolio
+
+* Imports
+#+name: imports-my-portfolio
+#+begin_src  ein-python :session https://localhost:8888/investments.ipynb
+  import pandas as pd
+  import numpy as np
+  import matplotlib.pyplot as plt
+  import pandas_datareader as web
+  from datetime import date
+  from datetime import datetime
+  from dateutil.relativedelta import relativedelta
+  import sys
+  from loguru import logger
+  from collections import deque
+  import pprint
+  from datetime import date
+  from datetime import datetime
+  from dateutil.relativedelta import relativedelta
+  import os
+  from dotenv import load_dotenv
+#+end_src
+
+#+RESULTS: imports-my-portfolio
+
+* Environment Variables
+#+name: env-vars
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :noweb yes
+  trade_spreadsheet_fullpath = 'trades_template.ods'
+#+end_src
+
+#+RESULTS: env-vars
+
+* Build Portfolio Data
+#+NAME: portfolio-setup
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :results output :noweb yes
+  <<invest-imports>>
+  <<important-vars>>
+  <<fill-class>>
+  <<transaction-class>>
+  <<position-class>>
+  <<portfolio-class>>
+  <<imports-my-portfolio>>
+  <<env-vars>>
+
+  def emacs_output_position(ticker, value, shares, spent, gain, fifo):
+      display(f'----------------------------------------------------')
+      display(f'Ticker: {ticker}')
+      display(f'Value: {value}')
+      display(f'Spent: {spent}')
+      display(f'Owned Shares: {shares}')
+      display(f'Gain: {gain}')
+      display(f"FIFO Profit & Loss: {fifo}")
+      #display(f'----------------------------------------------------')
+
+  p = Portfolio(trade_spreadsheet_fullpath)
+  p.gen_positions()
+  total_gains = p.get_total_gain()
+  p.calc_stats()
+  print(f'Total portfolio gains: {total_gains}')
+  #%matplotlib inline
+  for ticker, position in p.positions.items():
+      fifo = position.calc_fifo()
+      value, shares, spent, gain = p.positions[ticker].calc_transactions()
+      emacs_output_position(ticker, value, shares, spent, gain, fifo)
+#+end_src
+
+#+RESULTS: portfolio-setup
+#+begin_example
+Total portfolio gains: 7459.864201263426
+'----------------------------------------------------'
+'Ticker: VOOV'
+'Value: 14660.000610351562'
+'Spent: 13432.990000000002'
+'Owned Shares: 100'
+'Gain: 1227.010610351561'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: SPYG'
+'Value: 2745.4999923706055'
+'Spent: 2673.5'
+'Owned Shares: 50'
+'Gain: 71.99999237060547'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: SPYV'
+'Value: 4392.359802246094'
+'Spent: 4105.91'
+'Owned Shares: 108'
+'Gain: 286.4498022460939'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: INTC'
+'Value: 0.0'
+'Spent: -131.29999999999973'
+'Owned Shares: 0'
+'Gain: 131.29999999999973'
+'FIFO Profit & Loss: 131.30000000000013'
+'----------------------------------------------------'
+'Ticker: NVDA'
+'Value: 6750.3997802734375'
+'Spent: 5551.916'
+'Owned Shares: 40'
+'Gain: 1198.4837802734373'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: VOO'
+'Value: 74800'
+'Spent: 70262.0'
+'Owned Shares: 200'
+'Gain: 4538.0'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: AMD'
+'Value: 374.90001678466797'
+'Spent: 364.6'
+'Owned Shares: 5'
+'Gain: 10.300016784667946'
+'FIFO Profit & Loss: 0'
+'----------------------------------------------------'
+'Ticker: COUR'
+'Value: 27.799999237060547'
+'Spent: 31.480000000000004'
+'Owned Shares: 2'
+'Gain: -3.680000762939457'
+'FIFO Profit & Loss: -3.0'
+#+end_example
+
+* Ticker Monitoring
+*** NVDA
+**** NVDA Fetch Stock Data
+#+name: nvda-fetch
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :noweb yes :results output
+  <<invest-imports>>
+  <<important-vars>>
+  <<fill-class>>
+  <<transaction-class>>
+  <<position-class>>
+  <<portfolio-class>>
+  <<imports-my-portfolio>>
+  <<env-vars>>
+  ticker = "nvda"
+  start = five_yrs_ago
+  end = today_str
+  source = "yahoo"
+  ticker_data = web.DataReader(ticker, source, start, end)
+#+end_src
+
+#+RESULTS: nvda-fetch
+
+**** NVDA last 7 days
+#+name: nvda-7-days
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :results output
+  <<invest-imports>>
+  <<important-vars>>
+  <<fill-class>>
+  <<transaction-class>>
+  <<position-class>>
+  <<portfolio-class>>
+  <<imports-my-portfolio>>
+  print(ticker_data.tail(7))
+#+end_src
+
+#+RESULTS: nvda-7-days
+#+begin_example
+                  High         Low        Open       Close      Volume  \
+Date
+2022-11-15  169.979996  163.820007  167.220001  166.660004  54587600.0
+2022-11-16  163.619995  158.729996  161.619995  159.100006  64954700.0
+2022-11-17  162.660004  155.350006  157.149994  156.770004  71089400.0
+2022-11-18  160.020004  151.199997  159.660004  154.089996  49167700.0
+2022-11-21  154.770004  150.800003  151.470001  153.169998  40473900.0
+2022-11-22  160.580002  151.220001  153.279999  160.380005  47286600.0
+2022-11-23  165.270004  160.479996  160.979996  165.190002  42687500.0
+
+             Adj Close
+Date
+2022-11-15  166.660004
+2022-11-16  159.100006
+2022-11-17  156.770004
+2022-11-18  154.089996
+2022-11-21  153.169998
+2022-11-22  160.380005
+2022-11-23  165.190002
+#+end_example
+
+**** NVDA Adjusted Close Graphs
+#+name: nvda-adjusted-close-vars
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb  :noweb yes :results output
+  <<invest-imports>>
+  <<important-vars>>
+  <<fill-class>>
+  <<transaction-class>>
+  <<position-class>>
+  <<portfolio-class>>
+  <<imports-my-portfolio>>
+
+  # Vars
+  column_label = "Adj Close"
+  title = f'{ticker}: {column_label}'
+  xlabel = "Date"
+  ylabel = "Adjusted"
+
+  # Generate plot
+  %matplotlib inline
+  ticker_data[column_label].plot()
+  plt.xlabel(xlabel)
+  plt.ylabel(ylabel)
+  plt.title(title)
+  filename = f'{ticker}.png'
+  plt.savefig(filename)
+  filename
+#+end_src
+
+#+RESULTS: nvda-adjusted-close-line-graph
+| 'nvda.png'                                                  |
+| [[file:ein-images/ob-ein-8784a487f524192f232402b28af27045.png]] |

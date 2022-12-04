@@ -1,0 +1,338 @@
+#+TITLE: OrgInvest Portfolio Builder
+#+PROPERTY: header-args ein-python :session https://localhost:8888/investments.ipynb :noweb yes :tangle yes
+* Setup
+** Install dependencies with pip
+- pip install pandas numpy matplotlib pandas-datareader odfpy loguru dotenv
+* Modules
+** Imports
+#+NAME: invest-imports
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :noweb yes
+  import pandas as pd
+  import numpy as np
+  import matplotlib.pyplot as plt
+  import pandas_datareader as web
+  from datetime import date
+  from datetime import datetime
+  from dateutil.relativedelta import relativedelta
+  import sys
+  from loguru import logger
+  from collections import deque
+  import pprint
+  from datetime import date
+  from datetime import datetime
+  from dateutil.relativedelta import relativedelta
+  import os
+  from dotenv import load_dotenv
+
+  # Load env file
+  load_dotenv()
+
+  logger.add("investments.log",
+             #backtrace=True,
+             #diagnose=True,
+             colorize=True,
+             format="<green>{time}</green> <level>{message}</level>")
+#+end_src
+
+#+RESULTS: invest-imports
+: 1
+
+** Important Variables
+#+NAME: important-vars
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :results silent
+  # Today
+  today = date.today()
+  today_str = today.strftime("%Y-%m-%d")
+
+  # 1 Year Ago
+  one_yrs_ago = datetime.now() - relativedelta(years=1)
+
+  # 2 Years Ago
+  two_yrs_ago = datetime.now() - relativedelta(years=2)
+
+  # 5 Years Ago
+  five_yrs_ago = datetime.now() - relativedelta(years=5)
+
+  # 10 Years Ago
+  ten_yrs_ago = datetime.now() - relativedelta(years=10)
+#+end_src
+** Fill Class
+#+name: fill-class
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb
+  class Fill():
+      def __init__(self, price, direction):
+          self.price = price
+          self.direction = direction
+#+end_src
+
+#+RESULTS: fill-class
+
+** Transaction Class
+#+NAME: transaction-class
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb
+  class Transaction:
+      def __init__(self, ticker, date, time, action, quantity, commission, regfee, cost, account):
+          self.ticker = ticker
+          self.date = date
+          self.time = time
+          self.action = action
+          self.quantity = quantity
+          self.commission = commission
+          self.regfee = regfee
+          self.cost = cost
+          self.account = account
+          self.ticker_data = None
+          self.percent_change = None
+          self.gain = None
+
+      def get_action_datetime(self):
+          date_time_str = f'{self.date} {self.time}'
+          dt_object = datetime.strptime(date_time_str, '%Y-%m-%d %H:%M:%S')
+          return dt_object
+
+      def get_ticker_data(self, start=five_yrs_ago, end=today_str):
+          self.ticker_data = web.get_data_yahoo(self.ticker, start, end)
+          return self.ticker_data
+
+      def get_current_price(self):
+          return web.get_data_yahoo(self.ticker,
+                      start=today_str,
+                      end=today_str)['Adj Close'].tail(1)[0]
+
+      def get_percent_change(self):
+          current_price = self.get_current_price()
+          old_price = self.cost
+          percent_change = (current_price - old_price) / old_price * 100
+          percent_change = f'{percent_change}%'
+          #print(f'ticker: {self.ticker}; changed: {percent_change}; current price: {current_price}; old price: {old_price}')
+          self.percent_change = percent_change
+          return self.percent_change
+
+      def get_gain(self):
+          current_price = self.get_current_price()
+          old_price = self.cost
+          self.gain = current_price - old_price
+          return self.gain
+#+end_src
+
+#+RESULTS: transaction-class
+
+** Position Class
+#+NAME: position-class
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb :exports both :results output
+  class Position:
+      def __init__(self, ticker, transactions=None):
+          """
+          """
+          self.ticker = ticker
+          self.transactions = []
+          if transactions:
+              self.transactions = transactions
+          self.spent = 0
+          self.value = 0
+          self.owned_shares = 0
+          self.gain = 0
+
+      def get_change(self, transaction):
+          change = transaction.get_percent_change()
+          return change
+
+      def get_current_price(self):
+          return web.get_data_yahoo(self.ticker,
+                                    start=today_str,
+                                    end=today_str)['Adj Close'].tail(1)[0]
+
+      def calc_transactions(self):
+          total_spent = 0
+          total_shares = 0
+          for transaction in self.transactions:
+              if transaction.action == "BUY":
+                  total_spent += transaction.cost * transaction.quantity
+                  total_shares += transaction.quantity
+              if transaction.action == "SELL":
+                  total_spent -= transaction.cost * transaction.quantity
+                  total_shares -= transaction.quantity
+
+          total_value = self.get_current_price() * total_shares
+          gain = total_value - total_spent
+          self.spent = total_spent
+          self.owned_shares = total_shares
+          self.value = total_value
+          self.gain = gain
+          return total_value, total_shares, total_spent, gain
+
+      def gen_fills(self, price, quantity, direction):
+          fills = []
+          for x in range(quantity):
+              fills.append(Fill(price, direction))
+          return fills
+
+      def calc_fifo(self):
+          """
+          Calculate sell profits using FIFO
+          http://accountingexplained.com/financial/inventories/fifo-method
+          """
+          total_pnl = 0
+          trade_queue = deque()
+          fill_quantity = 0
+          for transaction in self.transactions:
+              if transaction.action == "BUY":
+                  fills = self.gen_fills(transaction.cost,
+                                         transaction.quantity,
+                                         transaction.action)
+                  trade_queue.extend(fills)
+                  fill_quantity += transaction.quantity
+              if transaction.action == "SELL":
+                  sell_quantity = transaction.quantity
+                  for x in range(sell_quantity):
+                      fi_fill = trade_queue.popleft()
+                      # profit & loss = sell price - buy price
+                      fi_pnl = transaction.cost - fi_fill.price
+                      total_pnl += fi_pnl
+          return total_pnl
+
+      def calc_lifo(self):
+          pass
+
+      def calc_avco(self):
+          pass
+
+
+  def debug():
+      p = Portfolio(transactions_fullpath)
+      p.gen_positions()
+      # %matplotlib inline
+      for ticker, position in p.positions.items():
+          fifo = position.calc_fifo()
+          print(fifo)
+#+end_src
+
+#+RESULTS: position-class
+
+** Portfolio Class
+#+NAME: portfolio-class
+#+begin_src ein-python :session https://localhost:8888/investments.ipynb
+  class Portfolio:
+      def __init__(self, spreadsheet=None, transactions=None):
+          self.transactions = transactions
+          self.transaction_table = None
+          self.positions = {}
+          if spreadsheet:
+              self.import_spreadsheet(spreadsheet)
+              self.import_transactions()
+
+      def import_spreadsheet(self, fullpath, sheet="Transactions",
+                             engine="odf"):
+          self.transaction_table = pd.read_excel(fullpath,
+                                      sheet_name=sheet,
+                                      engine=engine)
+          return self.transaction_table
+
+      def import_transactions(self):
+          """
+          Generates transaction class instances based on transactions
+          imported from spreadsheet data.
+          """
+          tickers = self.transaction_table['Ticker']
+          actions = self.transaction_table['Action']
+          costs = self.transaction_table['Cost']
+          dates = self.transaction_table['Date']
+          times = self.transaction_table['Time']
+          quantities = self.transaction_table['Quantity']
+          commissions = self.transaction_table['Commission']
+          regfees = self.transaction_table['Reg Fee']
+          accounts = self.transaction_table['Account']
+
+          self.transactions = []
+          for count, ticker in enumerate(tickers):
+              trans = Transaction(ticker=tickers[count],
+                                  date=dates[count].strftime('%Y-%m-%d'),
+                                  time=times[count].strftime("%H:%M:%S"),
+                                  action=actions[count],
+                                  quantity=quantities[count],
+                                  commission=commissions[count],
+                                  regfee=regfees[count],
+                                  cost=costs[count],
+                                  account=accounts[count])
+              #print(vars(trans))
+              self.transactions.append(trans)
+          return self.transactions
+
+      def get_trades_by_ticker(self, ticker):
+          """
+          Gets all transactions performed on a specified ticker.
+          """
+          trades_on_ticker = []
+          logger.info(f'get_trades_by_ticker({ticker})')
+          for transaction in self.transactions:
+              #trans_vars = vars(transaction)
+              #logger.info(f'get_trades_by_ticker() iter: {trans_vars}')
+              if ticker == transaction.ticker:
+                  #logger.info(f'get_trades_by_ticker() append {ticker}')
+                  trades_on_ticker.append(transaction)
+
+          logger.info(f'trades_on_ticker: {trades_on_ticker}')
+          return trades_on_ticker
+
+      def get_unique_tickers(self):
+          """
+          Gets all unique/distinct tickers from transactions list.
+          """
+          tickers = []
+          for transaction in self.transactions:
+              trans_vars = vars(transaction)
+              #logger.info(f'get_unique_tickers() iter: {trans_vars}')
+              if transaction.ticker not in tickers:
+                  logger.info(
+                      f'{transaction.ticker} is unique.')
+                  tickers.append(transaction.ticker)
+              else:
+                  logger.info(f'{transaction.ticker} not unique')
+          logger.info(f'get_unique_tickers() uniques: {tickers}')
+          return tickers
+
+      def group_trades_by_ticker(self, trades):
+          """
+          Groups trades together under their corresponding tickers
+          Returns a dictionary where the key is the ticker,
+          and the value is a list of trades on that ticker.
+          """
+          tickers = {}
+          for trade in trades:
+              if trade.ticker not in tickers:
+                  tickers[trade.ticker] = []
+              tickers[trade.ticker].append(trade)
+          return tickers
+
+      def gen_positions(self):
+          """
+          Generates Position class instances.
+          """
+          positions = {}
+          trade_groups = self.group_trades_by_ticker(self.transactions)
+          for ticker, trades in trade_groups.items():
+              new_position = Position(ticker=ticker,
+                                      transactions=trades)
+              positions[ticker] = new_position
+          self.positions = positions
+          return positions
+
+      def get_total_value(self):
+          pass
+
+      def get_total_spent(self):
+          pass
+
+      def get_total_gain(self):
+          total_gains = 0
+          for ticker in self.positions:
+              value, shares, spent, gain = self.positions[
+                  ticker].calc_transactions()
+              total_gains += gain
+          return total_gains
+
+      def calc_stats(self):
+          pass
+#+end_src
+
+#+RESULTS: portfolio-class

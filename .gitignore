@@ -1,0 +1,12 @@
+# vendor/.gitignore
+*
+!accounting.org
+!portfolio_template.org
+!trades_template.ods
+!portfolio-summary.png
+!last-7-days.png
+!ticker-graph.png
+!spreadsheet-example.png
+!README.md
+!.gitignore
+!LICENSE
